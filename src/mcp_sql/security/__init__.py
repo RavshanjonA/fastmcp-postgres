@@ -1,0 +1,1 @@
+"""Security layer: SQL AST validation, mutation checks, and redaction."""
