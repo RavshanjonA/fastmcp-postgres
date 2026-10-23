@@ -1,117 +1,121 @@
-# Secure PostgreSQL FastMCP Service
+# 🚀 Production-Ready Secure SQL MCP Server with FastMCP, PostgreSQL & SQLGlot
 
-A production-grade, read-only Model Context Protocol (MCP) server providing secure, sandboxed PostgreSQL database access for AI agents (such as Antigravity, Claude Desktop, Cursor, and Zed).
+[![Python Version](https://img.shields.io/badge/python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/)
+[![Protocol](https://img.shields.io/badge/Protocol-FastMCP%20%2F%20Model%20Context%20Protocol-purple.svg)](https://modelcontextprotocol.io/)
+[![Database](https://img.shields.io/badge/Database-PostgreSQL%20%2B%20asyncpg-336791.svg)](https://www.postgresql.org/)
+[![Security Parser](https://img.shields.io/badge/Security-SQLGlot%20AST-red.svg)](https://github.com/tobymao/sqlglot)
+[![ORM](https://img.shields.io/badge/Engine-SQLAlchemy%202.0%20AsyncIO-d71e00.svg)](https://www.sqlalchemy.org/)
+[![Package Manager](https://img.shields.io/badge/package%20manager-uv-green.svg)](https://astral.sh/uv)
 
-Built with **FastMCP**, **SQLAlchemy (AsyncIO)**, **SQLGlot (AST parser)**, and **Pydantic Settings**.
+A production-grade, educational implementation of a **Secure SQL Model Context Protocol (MCP)** server.
 
----
-
-## Key Features
-
-- **Multi-Layered Security (Defense-in-Depth):**
-  - **SQL AST Validation:** Uses `sqlglot` to parse queries into an Abstract Syntax Tree. Rejects mutations (`INSERT`, `UPDATE`, `DELETE`, `DROP`, `ALTER`, `TRUNCATE`) and multi-statement injection (`SELECT 1; DROP TABLE users;`).
-  - **Read-Only Session Enforcement:** Enforces `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY` at the PostgreSQL connection level.
-  - **PII & Secrets Redaction:** Automatically masks sensitive columns (`password`, `token`, `secret`, `api_key`, `credit_card`) with `[REDACTED]`.
-  - **Automatic Limit Injection:** Caps query results to avoid context window explosion (`default: 50`, `max: 100`).
-  - **Execution Timeouts:** Terminates long-running or hanging queries via `asyncio.wait_for`.
-- **MCP Protocol Cleanliness:**
-  - Strict STDIO hygiene: all logs are directed to `sys.stderr` to avoid corrupting MCP JSON-RPC frames over `sys.stdout`.
-- **Schema Discovery for LLMs:**
-  - Provides `get_tables` and `inspect_table` to eliminate hallucinated queries by allowing agents to introspect the schema before writing SQL.
+This project demonstrates how to connect autonomous AI agents (such as **Google Antigravity**, **Claude Desktop**, **Cursor**, and **Zed**) to an operational SQL database using a **defense-in-depth security model** that prevents prompt-injected SQL mutations, enforces read-only transactions, and automatically redacts PII data.
 
 ---
 
-## Architecture Overview
+## 📌 Architecture & Security Pipeline
+
+Connecting an LLM directly to a database without guardrails invites severe vulnerabilities: SQL injection via prompt injection, destructive DDL/DML execution, or context window exhaustion.
+
+This project solves these challenges through a **4-stage security pipeline**:
+
+```mermaid
+flowchart TD
+    Agent([🤖 AI Agent / LLM]) --> QueryReq[run_sql: Proposed SQL String]
+    
+    subgraph SecurityPipeline ["🛡️ Guardrail & Sanitization Pipeline"]
+        QueryReq --> ASTCheck{1. AST Parser: SQLGlot}
+        
+        ASTCheck -- "Forbidden: DDL, DML, Multi-stmt" --> Reject[❌ Reject Query & Return Explanatory Error]
+        ASTCheck -- "Valid SELECT" --> Sanitizer[2. Limit Sanitizer & Row Capper]
+        
+        Sanitizer --> DBExec[(🐘 3. PostgreSQL: READ ONLY Session)]
+        DBExec --> Masker[4. PII & Secret Redaction Engine]
+    end
+
+    Reject --> Agent
+    Masker --> SafeJSON[📊 Sanitized Result: Rows & Columns]
+    SafeJSON --> Agent
+```
+
+---
+
+## 🛡️ Defense-in-Depth Mechanisms
+
+| Stage | Technology | Security Function |
+| :--- | :--- | :--- |
+| **1. AST Parsing** | `sqlglot` | Parses queries into an Abstract Syntax Tree. Whitelists `SELECT`/`UNION` and strictly rejects `DROP`, `DELETE`, `UPDATE`, `INSERT`, `ALTER`, `TRUNCATE`, and multi-statement execution. |
+| **2. Query Sanitizing** | AST manipulation | Automatically injects a `LIMIT` clause if omitted, and caps user-specified limits to prevent buffer overruns and context overflow. |
+| **3. Session Enforcing** | `asyncpg` + `SQLAlchemy` | Executes `SET SESSION CHARACTERISTICS AS TRANSACTION READ ONLY` on each pool connection, providing a database-level kernel lock against modifications. |
+| **4. PII Redaction** | `Pydantic` + regex rules | Dynamically masks confidential columns (`password`, `token`, `secret`, `api_key`, `credit_card`) with `[REDACTED]`. |
+| **5. Protocol Hygiene** | `sys.stderr` routing | Routes all application logs strictly to `stderr`, preserving `stdout` for unbroken MCP JSON-RPC frame serialization. |
+
+---
+
+## 🏗️ Clean Modular Structure
 
 ```text
 mcp-sql-service/
-├── .env.example              # Environment variables template
-├── pyproject.toml            # Project dependencies and tool configurations
-├── README.md                 # Documentation
+├── .env.example              # Typed configuration template
+├── pyproject.toml            # Modern UV project & dependencies
+├── README.md                 # Educational documentation
 │
 ├── tests/
-│   └── test_security.py      # Injection prevention & sanitizer unit tests
+│   └── test_security.py      # Automated SQL injection & sanitization test suite
 │
 └── src/
     └── mcp_sql/
-        ├── main.py           # FastMCP entrypoint & tool declarations
-        ├── config.py         # Type-safe settings via Pydantic
+        ├── main.py           # FastMCP server registration & entrypoint
+        ├── config.py         # Pydantic Settings with env parsing & validation
         │
         ├── core/
-        │   ├── database.py   # Async connection pool & read-only sessions
-        │   ├── exceptions.py # Domain-specific error hierarchy
-        │   └── logger.py     # Stderr-only structured logging
+        │   ├── database.py   # Async connection pool & read-only session manager
+        │   ├── exceptions.py # Domain-specific custom exception hierarchy
+        │   └── logger.py     # Stderr-only structured logging setup
         │
         ├── security/
-        │   ├── validator.py  # AST parser for read-only validation
-        │   └── sanitizer.py  # LIMIT injection and PII redaction
+        │   ├── validator.py  # SQLGlot AST validation engine
+        │   └── sanitizer.py  # Automatic LIMIT injection and PII redaction
         │
         └── tools/
-            ├── schema.py     # Table listing and metadata inspection
-            └── query.py      # Safe read-only execution pipeline
+            ├── schema.py     # Schema introspection tools (get_tables, inspect_table)
+            └── query.py      # Sandboxed query runner with execution timeouts
 ```
 
 ---
 
-## Available MCP Tools
+## 🛠️ MCP Tools Specification
 
-| Tool | Parameters | Description |
-| :--- | :--- | :--- |
-| `get_tables` | *None* | Lists all public base tables in the PostgreSQL database. |
-| `inspect_table` | `table_name: str` | Returns column names, data types, and nullability constraints. |
-| `run_sql` | `query: str` | Validates, sanitizes, and executes a read-only SQL query against the database. |
+| Tool | Parameters | Return Type | Purpose |
+| :--- | :--- | :--- | :--- |
+| `get_tables` | *None* | `list[str]` | Lists all accessible tables in the schema so the model can ground its knowledge. |
+| `inspect_table` | `table_name: str` | `list[dict]` | Returns column names, data types, and nullability to prevent column hallucinations. |
+| `run_sql` | `query: str` | `dict` | Validates, sanitizes, and executes safe read-only queries with structured error reporting. |
 
 ---
 
-## Installation & Setup
+## ⚡ Quickstart
 
-### Prerequisites
+### 1. Requirements
 - Python 3.11+
-- [uv](https://github.com/astral-sh/uv) (recommended package manager)
-- Running PostgreSQL database instance
+- [uv](https://astral.sh/uv) (fast Python package manager)
+- PostgreSQL database instance
 
-### 1. Clone & Install Dependencies
+### 2. Setup & Installation
 
 ```bash
-git clone <repo-url>
-cd mcp-sql-service
+# Clone the repository
+git clone https://github.com/RavshanjonA/fastmcp-postgres.git
+cd fastmcp-postgres
 
-# Install dependencies using uv
+# Install dependencies in an isolated virtual environment
 uv sync
-```
 
-### 2. Configure Environment
-
-Copy `.env.example` to `.env` and set your PostgreSQL connection details:
-
-```bash
+# Configure environment variables
 cp .env.example .env
 ```
 
-Edit `.env`:
-
-```env
-# PostgreSQL Async Connection String
-DATABASE_URL=postgresql+asyncpg://postgres:password@localhost:5432/your_database
-
-# Connection Pool Settings
-DB_POOL_SIZE=5
-DB_MAX_OVERFLOW=10
-DB_POOL_TIMEOUT=30.0
-
-# Security & Constraints
-MAX_ROW_LIMIT=100
-DEFAULT_ROW_LIMIT=50
-QUERY_TIMEOUT_SECONDS=5.0
-
-# Logging
-LOG_LEVEL=INFO
-SERVER_NAME=secure-postgres-mcp
-```
-
 ### 3. Verify Database Connectivity
-
-Test that the service can reach PostgreSQL:
 
 ```bash
 uv run python -c "
@@ -120,7 +124,7 @@ from mcp_sql.core.database import check_database_connection
 
 async def main():
     ok = await check_database_connection()
-    print('DB Connection:', 'SUCCESS' if ok else 'FAILED')
+    print('DB Connection:', '✅ SUCCESS' if ok else '❌ FAILED')
 
 asyncio.run(main())
 "
@@ -128,36 +132,30 @@ asyncio.run(main())
 
 ---
 
-## Running & Testing
+## 🧪 Testing
 
-### Running Unit Tests
-
-Run the security and sanitizer test suite:
-
+### Run Security & Parser Unit Tests
 ```bash
-uv run pytest -v
+uv run pytest tests/test_security.py -v
 ```
 
-### Manual Inspection via MCP Inspector
-
-Inspect tools and test queries in an interactive browser UI:
-
+### Inspect Endpoints via MCP Inspector
+Test tool schemas and execute queries interactively in a web browser:
 ```bash
 npx @modelcontextprotocol/inspector uv run python src/mcp_sql/main.py
 ```
 
 ---
 
-## Agent Integration
+## 🔌 Agent Configurations
 
-### 1. Antigravity Configuration
+To connect this server to your preferred AI agent, add the following configuration:
 
-Add the server to `~/.gemini/config/mcp_config.json`:
-
+### Google Antigravity (`~/.gemini/config/mcp_config.json`)
 ```json
 {
   "mcpServers": {
-    "postgres-db": {
+    "secure-sql": {
       "command": "uv",
       "args": [
         "--directory",
@@ -171,14 +169,11 @@ Add the server to `~/.gemini/config/mcp_config.json`:
 }
 ```
 
-### 2. Claude Desktop
-
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
-
+### Claude Desktop (`claude_desktop_config.json`)
 ```json
 {
   "mcpServers": {
-    "postgres-db": {
+    "secure-sql": {
       "command": "uv",
       "args": [
         "--directory",
@@ -192,14 +187,11 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS)
 }
 ```
 
-### 3. Zed Editor
-
-Add to project-level settings (`.zed/settings.json`):
-
+### Zed Editor (`.zed/settings.json`)
 ```json
 {
   "context_servers": {
-    "postgres-db": {
+    "secure-sql": {
       "command": "uv",
       "args": [
         "run",
@@ -213,37 +205,6 @@ Add to project-level settings (`.zed/settings.json`):
 
 ---
 
-## Security Architecture
+## 📜 Educational Purpose & License
 
-```
-[Agent Query]
-      │
-      ▼
-┌─────────────────────────────────┐
-│ 1. AST Validation (SQLGlot)     │ ──► Rejects Non-SELECT, DDL, DML, Multi-Statements
-└─────────────────────────────────┘
-      │
-      ▼
-┌─────────────────────────────────┐
-│ 2. Query Sanitizer              │ ──► Caps or injects LIMIT clause
-└─────────────────────────────────┘
-      │
-      ▼
-┌─────────────────────────────────┐
-│ 3. Read-Only Transaction Guard  │ ──► Enforces PostgreSQL READ ONLY session
-└─────────────────────────────────┘
-      │
-      ▼
-┌─────────────────────────────────┐
-│ 4. Result Redaction (PII Mask)  │ ──► Redacts passwords, API keys, tokens
-└─────────────────────────────────┘
-      │
-      ▼
-[Sanitized JSON to Agent]
-```
-
----
-
-## License
-
-MIT
+This project is licensed under the **MIT License**. It serves as a reference architecture for building production-grade, secure tool integrations under the Model Context Protocol specification.
